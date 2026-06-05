@@ -16,6 +16,17 @@ const FIXTURE = [
     ],
     risks: ['Regulatory headwinds', 'Rate sensitivity'],
   },
+  {
+    ticker: 'COHR',
+    price: '$78.40',
+    change_pct: '-1.8%',
+    sentiment: 'Bearish',
+    one_liner: 'Supply chain concerns persist amid margin pressure.',
+    competitors: ['II-VI', 'LITE', 'IIVI'],
+    analyst_targets: [],
+    news: [],
+    risks: ['Supply chain risk'],
+  },
   { ticker: 'ERR', error: true },
 ];
 
@@ -34,6 +45,8 @@ const checks = [
   ['plain text ticker',            text.includes('CEG')],
   ['plain text news url',          text.includes('https://example.com/news1')],
   ['footer has model',             html.includes('claude-sonnet-4-6')],
+  ['negative change red color',    html.includes('-1.8%') && html.includes('#dc2626')],
+  ['bearish badge rendered',       html.includes('BEARISH')],
 ];
 
 let passed = 0;

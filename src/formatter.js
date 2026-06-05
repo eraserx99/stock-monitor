@@ -74,7 +74,7 @@ function detailCard(r) {
           <div style="display:inline-block;background:${s.bg};color:${s.text};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px">${s.label}</div>
         </div>
       </div>
-      <p style="margin:12px 0 0;color:#374151;font-style:italic;font-size:13px">"${r.one_liner}"</p>
+      <p style="margin:12px 0 0;color:#374151;font-style:italic;font-size:13px">"${r.one_liner || ''}"</p>
     </div>
     <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
       <div>
@@ -123,7 +123,7 @@ export function formatText(results, date, model) {
   const lines = [`📈 Daily Stock Digest — ${date}`, '='.repeat(50), ''];
   for (const r of results) {
     if (r.error) { lines.push(`[${r.ticker}] Data unavailable`, ''); continue; }
-    lines.push(`${r.ticker} — ${r.price} (${r.change_pct}) — ${r.sentiment.toUpperCase()}`, `"${r.one_liner}"`, '');
+    lines.push(`${r.ticker} — ${r.price} (${r.change_pct}) — ${r.sentiment.toUpperCase()}`, `"${r.one_liner || ''}"`, '');
     if (r.analyst_targets?.length) {
       lines.push('Analyst Targets:');
       r.analyst_targets.forEach(a => lines.push(`  - ${a.firm}: ${a.target} (${a.action}) ${a.url}`));
