@@ -23,14 +23,26 @@ async function runDigest(dryRun = false) {
 
   console.log(`📋 Running digest for ${tickers.length} tickers: ${tickers.join(', ')}`);
 
-  const results = [];
+  const raw = [];
   for (let i = 0; i < tickers.length; i++) {
-    results.push(await researchTicker(tickers[i], date));
+    raw.push(await researchTicker(tickers[i], date));
     if (i < tickers.length - 1) await new Promise(r => setTimeout(r, delay));
   }
 
-  const html = formatHTML(results, date, model);
-  const text = formatText(results, date, model);
+  const usage = raw.reduce((acc, r) => {
+    if (r._usage) {
+      acc.input_tokens += r._usage.input_tokens ?? 0;
+      acc.output_tokens += r._usage.output_tokens ?? 0;
+    }
+    return acc;
+  }, { input_tokens: 0, output_tokens: 0 });
+
+  const results = raw.map(({ _usage, ...r }) => r);
+  const cost = (usage.input_tokens / 1e6) * 3 + (usage.output_tokens / 1e6) * 15;
+  console.log(`📊 ${usage.input_tokens.toLocaleString()} input · ${usage.output_tokens.toLocaleString()} output tokens · est. $${cost.toFixed(3)}`);
+
+  const html = formatHTML(results, date, model, usage);
+  const text = formatText(results, date, model, usage);
 
   console.log('📧 Sending digest...');
   await sendDigest({ html, text, date, dryRun });

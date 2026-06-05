@@ -30,8 +30,10 @@ const FIXTURE = [
   { ticker: 'ERR', error: true },
 ];
 
-const html = formatHTML(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6');
-const text = formatText(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6');
+const USAGE = { input_tokens: 12450, output_tokens: 3210 };
+
+const html = formatHTML(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
+const text = formatText(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
 
 const checks = [
   ['ticker Yahoo link in table',   html.includes('finance.yahoo.com/quote/CEG')],
@@ -47,6 +49,9 @@ const checks = [
   ['footer has model',             html.includes('claude-sonnet-4-6')],
   ['negative change red color',    html.includes('-1.8%') && html.includes('#dc2626')],
   ['bearish badge rendered',       html.includes('BEARISH')],
+  ['usage tokens in footer',       html.includes('12,450') && html.includes('3,210')],
+  ['estimated cost in footer',     html.includes('$0.0') && html.includes('est.')],
+  ['usage in plain text',          text.includes('12,450') && text.includes('est.')],
 ];
 
 let passed = 0;

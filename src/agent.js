@@ -7,7 +7,11 @@ export const delay = parseInt(process.env.TICKER_DELAY_MS ?? '2000', 10);
 
 function extractJSON(text) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  return JSON.parse(fenced ? fenced[1].trim() : text.trim());
+  if (fenced) return JSON.parse(fenced[1].trim());
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1) return JSON.parse(text.slice(start, end + 1));
+  return JSON.parse(text.trim());
 }
 
 export async function researchTicker(ticker, date) {
@@ -37,9 +41,9 @@ Return ONLY a JSON object (no markdown, no code fences) with these exact keys:
 
     const data = extractJSON(textBlocks[textBlocks.length - 1].text);
     console.log(`✅ ${ticker} complete`);
-    return data;
+    return { ...data, _usage: response.usage };
   } catch (err) {
     console.error(`❌ Error researching ${ticker}: ${err.message}`);
-    return { ticker, error: true };
+    return { ticker, error: true, _usage: null };
   }
 }
