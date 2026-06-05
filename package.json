@@ -7,7 +7,12 @@
     "run-now": "node src/index.js --run-now",
     "dry-run": "node src/index.js --dry-run",
     "dev": "node --watch src/index.js --run-now",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js",
+    "pm2:start": "pm2 start src/index.js --name stock-monitor",
+    "pm2:stop": "pm2 stop stock-monitor",
+    "pm2:restart": "pm2 restart stock-monitor",
+    "pm2:logs": "pm2 logs stock-monitor",
+    "pm2:status": "pm2 status"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
