@@ -8,7 +8,7 @@ export async function sendDigest({ html, text, date, dryRun = false }) {
     await writeFile(path, html, 'utf8');
     console.log(`💾 Dry-run: saved to ${path}`);
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    execFile(opener, [path]);
+    execFile(opener, [path], err => { if (err) console.warn(`⚠️  Could not open browser: ${err.message}`); });
     return;
   }
 
