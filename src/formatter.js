@@ -4,6 +4,143 @@ const SENTIMENT = {
   Bearish:  { border: '#ef4444', bg: '#1c0000', text: '#f87171', label: 'BEARISH' },
 };
 
+const SECTOR_COLORS = {
+  'Technology':             { border: '#3b82f6', bg: '#0c1a2e', text: '#60a5fa' },
+  'Utilities':              { border: '#22c55e', bg: '#052e16', text: '#4ade80' },
+  'Industrials':            { border: '#f59e0b', bg: '#1c1400', text: '#fbbf24' },
+  'Healthcare':             { border: '#a855f7', bg: '#1a0a2e', text: '#c084fc' },
+  'Communication Services': { border: '#ef4444', bg: '#1c0000', text: '#f87171' },
+};
+const SECTOR_ORDER = ['Technology', 'Utilities', 'Industrials', 'Healthcare', 'Communication Services'];
+
+function groupBySector(results) {
+  const groups = {};
+  for (const r of results) {
+    const s = r.sector || 'Other';
+    (groups[s] ??= []).push(r);
+  }
+  return Object.entries(groups).sort(([a], [b]) => {
+    const ai = SECTOR_ORDER.indexOf(a), bi = SECTOR_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+function sectorHeaderRow(sector, count) {
+  const s = SECTOR_COLORS[sector] || { border: '#64748b', bg: '#1e293b', text: '#94a3b8' };
+  return `<tr style="background:${s.bg};border-top:2px solid ${s.border}">
+    <td colspan="6" style="padding:5px 12px;font-size:10px;font-weight:700;color:${s.text};text-transform:uppercase;letter-spacing:.08em">${esc(sector)} <span style="font-weight:400;opacity:.7">(${count})</span></td>
+  </tr>`;
+}
+
+function sparklineSVG(prices) {
+  if (!prices || prices.length < 2) return '<span style="color:#334155;font-size:10px">—</span>';
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const W = 80, H = 24, pad = 1;
+  const xs = prices.map((_, i) => pad + (i / (prices.length - 1)) * (W - pad * 2));
+  const ys = prices.map(p => H - pad - ((p - min) / range) * (H - pad * 2));
+  const pts = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+  const fillPts = `${xs[0].toFixed(1)},${H} ${pts} ${xs[xs.length - 1].toFixed(1)},${H}`;
+  const color = prices[prices.length - 1] >= prices[0] ? '#4ade80' : '#f87171';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="24" viewBox="0 0 80 24" style="display:block;overflow:visible"><polygon points="${fillPts}" fill="${color}" fill-opacity="0.12"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function earningsSectionHTML(earnings) {
+  if (!earnings) return '';
+  const rows = (earnings.history || []).slice(0, 4).map(q => {
+    if (q.epsActual == null) return '';
+    const color = q.beat == null ? '#94a3b8' : q.beat ? '#4ade80' : '#f87171';
+    const icon = q.beat == null ? '' : q.beat ? '▲' : '▼';
+    const est = q.epsEstimate != null ? ` vs est <span style="color:#64748b">$${q.epsEstimate.toFixed(2)}</span>` : '';
+    const surp = q.surprisePct ? `<span style="color:${color}"> ${esc(q.surprisePct)}</span>` : '';
+    return `<div style="margin-bottom:3px"><span style="color:${color};font-weight:700;margin-right:4px">${icon} ${esc(q.quarter || '')}</span>EPS <strong style="color:#f1f5f9">$${q.epsActual.toFixed(2)}</strong>${est}${surp}</div>`;
+  }).filter(Boolean).join('');
+
+  const next = [];
+  const nextDateDisplay = earnings.nextDate
+    ? `<strong style="color:#f1f5f9">${esc(earnings.nextDate)}</strong>`
+    : `<span style="color:#475569">TBD</span>`;
+  next.push(`Next: ${nextDateDisplay}`);
+  if (earnings.nextEpsEstimate != null) next.push(`Est EPS: <strong style="color:#f1f5f9">$${earnings.nextEpsEstimate.toFixed(2)}</strong>${earnings.currentQuarterLabel ? ` <span style="color:#475569">(${esc(earnings.currentQuarterLabel)})</span>` : ''}`);
+  const nextHTML = `<div style="margin-top:6px;color:#64748b;font-size:11px">${next.join(' · ')}</div>`;
+
+  if (!rows && !nextHTML) return '';
+  return `<div style="padding:0 16px 14px;font-size:12px">
+    <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">Earnings</div>
+    <div style="color:#cbd5e1">${rows}${nextHTML}</div>
+  </div>`;
+}
+
+function detailChartSVG(dailyChart) {
+  if (!dailyChart?.closes?.length) return '';
+  const { closes, ma50, ma200, vwap30 } = dailyChart;
+  const n = closes.length;
+  if (n < 2) return '';
+
+  const W = 600, H = 90, padL = 2, padR = 2, padT = 5, padB = 5;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const allVals = [
+    ...closes,
+    ...ma50.filter(v => v != null),
+    ...ma200.filter(v => v != null),
+    ...vwap30.filter(v => v != null),
+  ];
+  const yMin = Math.min(...allVals);
+  const yMax = Math.max(...allVals);
+  const yRange = yMax - yMin || 1;
+
+  const toX = i => (padL + (i / (n - 1)) * plotW).toFixed(1);
+  const toY = v => (H - padB - ((v - yMin) / yRange) * plotH).toFixed(1);
+
+  const priceColor = closes[n - 1] >= closes[0] ? '#4ade80' : '#f87171';
+  const pricePts = closes.map((c, i) => `${toX(i)},${toY(c)}`).join(' ');
+  const fillPts = `${padL},${H - padB} ${pricePts} ${padL + plotW},${H - padB}`;
+
+  function lineSegments(series, color, strokeW, dasharray) {
+    const segs = [];
+    let cur = [];
+    series.forEach((v, i) => {
+      if (v == null) { if (cur.length > 1) segs.push(cur.join(' ')); cur = []; }
+      else cur.push(`${toX(i)},${toY(v)}`);
+    });
+    if (cur.length > 1) segs.push(cur.join(' '));
+    const dash = dasharray ? ` stroke-dasharray="${dasharray}"` : '';
+    return segs.map(pts =>
+      `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${strokeW}"${dash} stroke-linejoin="round"/>`
+    ).join('');
+  }
+
+  const lastVwap = [...vwap30].reverse().find(v => v != null) ?? null;
+  const lastClose = closes[n - 1];
+  const vwapDiff = lastVwap != null ? ((lastClose - lastVwap) / lastVwap * 100) : null;
+  const vwapLegend = lastVwap != null
+    ? `$${lastVwap.toFixed(2)} <span style="color:${vwapDiff >= 0 ? '#4ade80' : '#f87171'}">(${vwapDiff >= 0 ? '+' : ''}${vwapDiff.toFixed(1)}%)</span>`
+    : '';
+
+  return `<div style="padding:0 16px 14px">
+    <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">1-Year Chart</div>
+    <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W} ${H}" style="display:block;background:#0f172a;border-radius:6px">
+      <polygon points="${fillPts}" fill="${priceColor}" fill-opacity="0.08"/>
+      <polyline points="${pricePts}" fill="none" stroke="${priceColor}" stroke-width="1.5" stroke-linejoin="round"/>
+      ${lineSegments(ma50, '#60a5fa', 1, '')}
+      ${lineSegments(ma200, '#fb923c', 1, '')}
+      ${lineSegments(vwap30, '#c084fc', 1, '3,2')}
+    </svg>
+    <div style="display:flex;gap:14px;margin-top:5px;font-size:10px;color:#64748b;flex-wrap:wrap;align-items:center">
+      <span><span style="color:${priceColor}">──</span> Price</span>
+      <span><span style="color:#60a5fa">──</span> MA50</span>
+      <span><span style="color:#fb923c">──</span> MA200</span>
+      <span><span style="color:#c084fc">- -</span> VWAP(30d)${vwapLegend ? ` <strong style="color:#f1f5f9">${vwapLegend}</strong>` : ''}</span>
+    </div>
+  </div>`;
+}
+
 const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ESC_MAP[c]);
 const safeUrl = url => /^https?:\/\//i.test(url) ? url : '#';
@@ -34,19 +171,30 @@ function summaryRow(r) {
       <td style="padding:6px 10px;font-weight:700">
         <a href="${yahoo(r.ticker)}" style="color:#f1f5f9;text-decoration:none">${esc(r.ticker)}</a>
       </td>
-      <td colspan="4" style="padding:6px 10px;color:#64748b;font-style:italic">Data unavailable</td>
+      <td colspan="5" style="padding:6px 10px;color:#64748b;font-style:italic">Data unavailable</td>
     </tr>`;
   }
   const s = SENTIMENT[r.sentiment] || SENTIMENT.Neutral;
+  const nextEarnings = r.earnings?.nextDate;
+  const earningsLabel = r.earnings
+    ? (nextEarnings ? (() => {
+        const [, m, d] = nextEarnings.match(/^\d{4}-(\d{2})-(\d{2})$/) || [];
+        if (!m) return 'TBD';
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}`;
+      })() : 'TBD')
+    : null;
   return `<tr style="border-bottom:1px solid #334155">
     <td style="padding:6px 10px;font-weight:700">
       <a href="${yahoo(r.ticker)}" style="color:#f1f5f9;text-decoration:none">${esc(r.ticker)}</a>
+      ${earningsLabel ? `<div style="font-size:9px;color:#475569;font-weight:400;margin-top:2px">📅 ${earningsLabel}</div>` : ''}
     </td>
-    <td style="padding:6px 10px;color:#cbd5e1">${esc(r.price)}</td>
-    <td style="padding:6px 10px;color:${changeColor(r.change_pct)};font-weight:600">${esc(r.change_pct)}</td>
+    <td style="padding:6px 10px;color:#cbd5e1;white-space:nowrap">${esc(r.price)}</td>
+    <td style="padding:6px 10px;color:${changeColor(r.change_pct)};font-weight:600;white-space:nowrap">${esc(r.change_pct)}</td>
     <td style="padding:6px 10px">
       <span style="background:${s.bg};color:${s.text};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${s.label}</span>
     </td>
+    <td style="padding:4px 10px">${sparklineSVG(r.sparkline)}</td>
     <td style="padding:6px 10px;color:#94a3b8;font-style:italic;font-size:12px">${esc(r.one_liner)}</td>
   </tr>`;
 }
@@ -108,6 +256,8 @@ function detailCard(r) {
         <ul style="margin:0;padding-left:16px;color:#cbd5e1">${risksHTML}</ul>
       </div>
     </div>
+    ${detailChartSVG(r.dailyChart)}
+    ${earningsSectionHTML(r.earnings)}
     <div style="padding:0 16px 14px;font-size:13px">
       <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">News (48h)</div>
       <ul style="margin:0;padding-left:16px;color:#cbd5e1">${newsHTML}</ul>
@@ -149,7 +299,15 @@ export function formatHTML(results, date, model, usage = null) {
   <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;overflow:hidden;margin-bottom:24px">
     <div style="background:#0f172a;padding:10px 16px;font-weight:700;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Quick Summary</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px">
-      ${results.map(summaryRow).join('')}
+      <tr style="background:#0f172a;border-bottom:2px solid #334155">
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Ticker</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Price</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Change</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Sentiment</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">6M Trend</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Analysis</th>
+      </tr>
+      ${groupBySector(results).flatMap(([sector, tickers]) => [sectorHeaderRow(sector, tickers.length), ...tickers.map(summaryRow)]).join('')}
     </table>
   </div>
   ${results.map(detailCard).join('')}
