@@ -10,6 +10,46 @@ export const delay = parseInt(process.env.TICKER_DELAY_MS ?? '2000', 10);
 
 const GRADE_ACTION = { up: 'Upgrade', down: 'Downgrade', init: 'Initiate', main: 'Maintain', reit: 'Reiterate' };
 
+function computePerformanceReturns(quotes) {
+  // quotes: [{date: Date|string, adjclose: number|null, close: number}]
+  if (!quotes || quotes.length < 2) return null;
+  const closes = quotes.map(q => q.adjclose ?? q.close).filter(v => v != null && v > 0);
+  const dates = quotes.filter(q => (q.adjclose ?? q.close) != null).map(q => new Date(q.date));
+  if (closes.length < 2) return null;
+
+  const current = closes[closes.length - 1];
+  const currentDate = dates[dates.length - 1];
+
+  function pctReturn(pastIdx) {
+    if (pastIdx < 0 || closes[pastIdx] == null) return null;
+    return (current - closes[pastIdx]) / closes[pastIdx] * 100;
+  }
+
+  function findIdx(targetDate) {
+    let best = -1, bestDiff = Infinity;
+    for (let i = 0; i < dates.length; i++) {
+      const diff = Math.abs(dates[i] - targetDate);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    return best;
+  }
+
+  const currentYear = currentDate.getFullYear();
+  const ytdIdx = dates.findIndex(d => d.getFullYear() === currentYear);
+  const ytdStart = ytdIdx > 0 ? ytdIdx - 1 : 0;
+
+  const oneYearAgo = new Date(currentDate); oneYearAgo.setFullYear(currentYear - 1);
+  const threeYearsAgo = new Date(currentDate); threeYearsAgo.setFullYear(currentYear - 3);
+  const fiveYearsAgo = new Date(currentDate); fiveYearsAgo.setFullYear(currentYear - 5);
+
+  return {
+    ytd:       pctReturn(ytdStart),
+    oneYear:   pctReturn(findIdx(oneYearAgo)),
+    threeYear: pctReturn(findIdx(threeYearsAgo)),
+    fiveYear:  pctReturn(findIdx(fiveYearsAgo)),
+  };
+}
+
 function computeMA(closes, n) {
   const out = new Array(closes.length).fill(null);
   let sum = 0;
@@ -79,11 +119,14 @@ async function claudeAnalyze(ticker, context) {
 
 ${JSON.stringify(context, null, 2)}
 
-Return ONLY: {"sentiment":"Bullish"|"Neutral"|"Bearish","one_liner":string,"risks":[string],"competitors":[string,string,string]}`,
+Return ONLY: {"sentiment":"Bullish"|"Neutral"|"Bearish","one_liner":string,"news_summary":string,"risks":[string],"competitors":[string,string,string]}
+
+news_summary: 2-3 sentence narrative synthesizing the recent news headlines into a coherent story. Bold key numbers, price moves, and critical facts using **double asterisks**. Focus on what's most market-moving.`,
     }],
   });
   const text = response.content.find(b => b.type === 'text')?.text || '';
-  return { analysis: extractJSON(text), usage: response.usage };
+  const analysis = extractJSON(text);
+  return { analysis: { news_summary: null, ...analysis }, usage: response.usage };
 }
 
 async function finnhubGet(path) {
@@ -112,13 +155,15 @@ async function fetchAlphaVantageNews(ticker) {
 // Plan A: yahoo-finance2 (no API key, instant market data)
 async function fetchFromYahoo(ticker) {
   const twoYearsAgo = new Date(Date.now() - 730 * 24 * 3600 * 1000);
-  const [quote, summary, searched, chartData] = await Promise.all([
+  const fiveYearsAgo = new Date(Date.now() - 5 * 365 * 24 * 3600 * 1000);
+  const [quote, summary, searched, chartData, perfData] = await Promise.all([
     yahooFinance.quote(ticker),
     yahooFinance.quoteSummary(ticker, {
       modules: ['upgradeDowngradeHistory', 'financialData', 'assetProfile', 'earnings', 'calendarEvents'],
     }, { validateResult: false }).catch(() => ({})),
     yahooFinance.search(ticker, { newsCount: 5, quotesCount: 0 }).catch(() => ({ news: [] })),
     yahooFinance.chart(ticker, { period1: twoYearsAgo, interval: '1d' }).catch(() => null),
+    yahooFinance.chart(ticker, { period1: fiveYearsAgo, interval: '1mo' }).catch(() => null),
   ]);
 
   if (!quote.regularMarketPrice) throw new Error('No price data from Yahoo Finance');
@@ -225,6 +270,8 @@ async function fetchFromYahoo(ticker) {
     currentQuarterLabel: earningsChart?.currentQuarterEstimateDate || null,
   } : null;
 
+  const performance = computePerformanceReturns(perfData?.quotes || []);
+
   const rawQuotes = (chartData?.quotes || []).filter(q => q.close != null && q.close > 0);
   const { sparkline, dailyChart } = buildDailyChart(
     rawQuotes.map(q => q.close),
@@ -243,6 +290,12 @@ async function fetchFromYahoo(ticker) {
     recentEarnings: earningsQuarters.slice(0, 2).map(q =>
       q.epsActual != null ? `${q.quarter}: EPS $${q.epsActual.toFixed(2)} vs est $${q.epsEstimate?.toFixed(2)} (${q.beat ? 'Beat' : 'Miss'} ${q.surprisePct})` : null
     ).filter(Boolean),
+    performance: performance ? {
+      ytd: performance.ytd != null ? `${performance.ytd >= 0 ? '+' : ''}${performance.ytd.toFixed(1)}%` : null,
+      oneYear: performance.oneYear != null ? `${performance.oneYear >= 0 ? '+' : ''}${performance.oneYear.toFixed(1)}%` : null,
+      threeYear: performance.threeYear != null ? `${performance.threeYear >= 0 ? '+' : ''}${performance.threeYear.toFixed(1)}%` : null,
+      fiveYear: performance.fiveYear != null ? `${performance.fiveYear >= 0 ? '+' : ''}${performance.fiveYear.toFixed(1)}%` : null,
+    } : null,
   });
 
   return {
@@ -253,8 +306,10 @@ async function fetchFromYahoo(ticker) {
     earnings,
     sparkline,
     dailyChart,
+    performance,
     sentiment: analysis.sentiment,
     one_liner: analysis.one_liner,
+    news_summary: analysis.news_summary || null,
     risks: analysis.risks || [],
     competitors: analysis.competitors || [],
     analyst_targets,
@@ -353,8 +408,10 @@ async function fetchFromFinnhub(ticker) {
     earnings,
     sparkline,
     dailyChart,
+    performance: null,
     sentiment: analysis.sentiment,
     one_liner: analysis.one_liner,
+    news_summary: analysis.news_summary || null,
     risks: analysis.risks || [],
     competitors: competitors.length ? competitors : (analysis.competitors || []),
     analyst_targets,
@@ -388,7 +445,31 @@ Return ONLY a JSON object (no markdown, no code fences) with these exact keys:
   const textBlocks = response.content.filter(b => b.type === 'text');
   if (!textBlocks.length) throw new Error('No text block in response');
   const data = extractJSON(textBlocks[textBlocks.length - 1].text);
-  return { sector: null, industry: null, description: null, earnings: null, sparkline: null, dailyChart: null, ...data, source: 'Web Search', _usage: response.usage };
+  return { sector: null, industry: null, description: null, earnings: null, sparkline: null, dailyChart: null, performance: null, ...data, source: 'Web Search', _usage: response.usage };
+}
+
+export async function fetchBenchmarkReturns() {
+  const fiveYearsAgo = new Date(Date.now() - 5 * 365 * 24 * 3600 * 1000);
+  try {
+    const data = await yahooFinance.chart('^GSPC', { period1: fiveYearsAgo, interval: '1mo' }).catch(() => null);
+    return computePerformanceReturns(data?.quotes || []);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchIPOCalendar() {
+  if (!process.env.FINNHUB_API_KEY) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  const in30Days = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  try {
+    const data = await finnhubGet(`/calendar/ipo?from=${today}&to=${in30Days}`);
+    return (data.ipoCalendar || [])
+      .filter(ipo => ipo.status === 'expected' || ipo.status === 'priced')
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  } catch {
+    return [];
+  }
 }
 
 export async function researchTicker(ticker, date) {

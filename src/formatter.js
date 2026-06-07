@@ -199,7 +199,7 @@ function summaryRow(r) {
   </tr>`;
 }
 
-function detailCard(r) {
+function detailCard(r, benchmark = null) {
   if (r.error) {
     return `<div style="border:1px solid #334155;border-top:3px solid #475569;border-radius:10px;margin-bottom:20px;overflow:hidden;background:#1e293b">
       <div style="padding:16px">
@@ -256,8 +256,10 @@ function detailCard(r) {
         <ul style="margin:0;padding-left:16px;color:#cbd5e1">${risksHTML}</ul>
       </div>
     </div>
+    ${performanceOverviewHTML(r.performance, benchmark)}
     ${detailChartSVG(r.dailyChart)}
     ${earningsSectionHTML(r.earnings)}
+    ${newsSummaryHTML(r.news_summary)}
     <div style="padding:0 16px 14px;font-size:13px">
       <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">News (48h)</div>
       <ul style="margin:0;padding-left:16px;color:#cbd5e1">${newsHTML}</ul>
@@ -266,6 +268,104 @@ function detailCard(r) {
       <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">Competitors</div>
       ${competitorsHTML}
     </div>` : ''}
+  </div>`;
+}
+
+function newsSummaryHTML(summary) {
+  if (!summary) return '';
+  // Escape HTML first, then convert **bold** markers to <strong>
+  const safe = esc(summary).replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#f1f5f9">$1</strong>');
+  return `<div style="margin:0 16px 14px;padding:12px 14px;background:#0f172a;border:1px solid #1e3a5f;border-left:3px solid #3b82f6;border-radius:6px">
+    <div style="font-size:10px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">⚡ News Summary</div>
+    <div style="font-size:13px;color:#94a3b8;line-height:1.6">${safe}</div>
+    <div style="font-size:10px;color:#334155;margin-top:8px">Powered by Claude</div>
+  </div>`;
+}
+
+function performanceOverviewHTML(perf, benchmark) {
+  if (!perf) return '';
+  const periods = [
+    { label: 'YTD Return',    stock: perf.ytd,       sp: benchmark?.ytd },
+    { label: '1-Year Return', stock: perf.oneYear,   sp: benchmark?.oneYear },
+    { label: '3-Year Return', stock: perf.threeYear, sp: benchmark?.threeYear },
+    { label: '5-Year Return', stock: perf.fiveYear,  sp: benchmark?.fiveYear },
+  ].filter(p => p.stock != null);
+
+  if (!periods.length) return '';
+
+  function fmt(val) {
+    if (val == null) return '—';
+    return `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`;
+  }
+
+  const cards = periods.map(p => {
+    const stockColor = p.stock >= 0 ? '#4ade80' : '#f87171';
+    const spColor = p.sp == null ? '#64748b' : p.sp >= 0 ? '#4ade80' : '#f87171';
+    return `<div style="flex:1;min-width:120px;background:#0f172a;border-radius:8px;padding:10px 12px">
+      <div style="font-size:10px;font-weight:600;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">${p.label}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <div style="font-size:9px;color:#475569;margin-bottom:2px">This stock</div>
+          <div style="font-size:15px;font-weight:700;color:${stockColor}">${fmt(p.stock)}</div>
+        </div>
+        ${p.sp != null ? `<div style="text-align:right">
+          <div style="font-size:9px;color:#475569;margin-bottom:2px">S&amp;P 500</div>
+          <div style="font-size:13px;font-weight:600;color:${spColor}">${fmt(p.sp)}</div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div style="padding:0 16px 14px">
+    <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:8px">Performance Overview <span style="font-weight:400;text-transform:none;color:#334155">(total return, incl. dividends)</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${cards}</div>
+  </div>`;
+}
+
+function ipoSectionHTML(ipos) {
+  if (!ipos || ipos.length === 0) return '';
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    const [, m, day] = d.match(/^\d{4}-(\d{2})-(\d{2})$/) || [];
+    if (!m) return d;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[parseInt(m, 10) - 1]} ${parseInt(day, 10)}`;
+  }
+
+  function fmtSize(val) {
+    if (!val) return '—';
+    if (val >= 1e9) return `$${(val / 1e9).toFixed(1)}B`;
+    if (val >= 1e6) return `$${Math.round(val / 1e6)}M`;
+    return `$${val.toLocaleString()}`;
+  }
+
+  const rows = ipos.map(ipo => {
+    const statusColor = ipo.status === 'priced' ? '#4ade80' : '#fbbf24';
+    const symbol = ipo.symbol ? `<span style="color:#64748b;font-size:10px;margin-left:4px">${esc(ipo.symbol)}</span>` : '';
+    return `<tr style="border-bottom:1px solid #1e293b">
+      <td style="padding:6px 10px;font-weight:600;color:#f1f5f9">${esc(ipo.name || '—')}${symbol}</td>
+      <td style="padding:6px 10px;color:#94a3b8;white-space:nowrap">${fmtDate(ipo.date)}</td>
+      <td style="padding:6px 10px;color:#94a3b8">${esc(ipo.exchange || '—')}</td>
+      <td style="padding:6px 10px;color:#94a3b8;white-space:nowrap">${esc(ipo.price || '—')}</td>
+      <td style="padding:6px 10px;color:#94a3b8;white-space:nowrap">${fmtSize(ipo.totalSharesValue)}</td>
+      <td style="padding:6px 10px"><span style="color:${statusColor};font-size:10px;font-weight:600;text-transform:uppercase">${esc(ipo.status)}</span></td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <div style="background:#0f172a;padding:10px 16px;font-weight:700;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">🚀 Upcoming IPOs (30 days)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="background:#0f172a;border-bottom:2px solid #334155">
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Company</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Date</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Exchange</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Price Range</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Size</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Status</th>
+      </tr>
+      ${rows}
+    </table>
   </div>`;
 }
 
@@ -288,7 +388,7 @@ function usageFooterHTML(usage) {
   </div>`;
 }
 
-export function formatHTML(results, date, model, usage = null) {
+export function formatHTML(results, date, model, usage = null, ipos = [], benchmark = null) {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -310,7 +410,8 @@ export function formatHTML(results, date, model, usage = null) {
       ${groupBySector(results).flatMap(([sector, tickers]) => [sectorHeaderRow(sector, tickers.length), ...tickers.map(summaryRow)]).join('')}
     </table>
   </div>
-  ${results.map(detailCard).join('')}
+  ${ipoSectionHTML(ipos)}
+  ${results.map(r => detailCard(r, benchmark)).join('')}
   <div style="text-align:center;color:#64748b;font-size:11px;margin-top:24px;padding-top:16px;border-top:1px solid #334155">
     Generated by Claude ${model} with web search
     ${usageFooterHTML(usage)}

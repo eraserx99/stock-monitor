@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { researchTicker, delay, model } from './agent.js';
+import { researchTicker, fetchIPOCalendar, fetchBenchmarkReturns, delay, model } from './agent.js';
 import { formatHTML, formatText } from './formatter.js';
 import { sendDigest } from './mailer.js';
 import { startScheduler } from './scheduler.js';
@@ -23,11 +23,17 @@ async function runDigest(dryRun = false) {
 
   console.log(`📋 Running digest for ${tickers.length} tickers: ${tickers.join(', ')}`);
 
+  // Kick off background fetches in parallel with the ticker loop
+  const ipoPromise = fetchIPOCalendar();
+  const benchmarkPromise = fetchBenchmarkReturns();
+
   const raw = [];
   for (let i = 0; i < tickers.length; i++) {
     raw.push(await researchTicker(tickers[i], date));
     if (i < tickers.length - 1) await new Promise(r => setTimeout(r, delay));
   }
+
+  const [ipos, benchmark] = await Promise.all([ipoPromise, benchmarkPromise]);
 
   const usage = raw.reduce((acc, r) => {
     if (r._usage) {
@@ -41,7 +47,7 @@ async function runDigest(dryRun = false) {
   const cost = (usage.input_tokens / 1e6) * 3 + (usage.output_tokens / 1e6) * 15;
   console.log(`📊 ${usage.input_tokens.toLocaleString()} input · ${usage.output_tokens.toLocaleString()} output tokens · est. $${cost.toFixed(3)}`);
 
-  const html = formatHTML(results, date, model, usage);
+  const html = formatHTML(results, date, model, usage, ipos, benchmark);
   const text = formatText(results, date, model, usage);
 
   console.log('📧 Sending digest...');
