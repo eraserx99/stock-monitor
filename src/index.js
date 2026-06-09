@@ -47,11 +47,11 @@ async function runDigest(dryRun = false) {
   const cost = (usage.input_tokens / 1e6) * 3 + (usage.output_tokens / 1e6) * 15;
   console.log(`📊 ${usage.input_tokens.toLocaleString()} input · ${usage.output_tokens.toLocaleString()} output tokens · est. $${cost.toFixed(3)}`);
 
-  const html = formatHTML(results, date, model, usage, ipos, benchmark);
+  const { html, attachments } = formatHTML(results, date, model, usage, ipos, benchmark, { inline: dryRun });
   const text = formatText(results, date, model, usage);
 
   console.log('📧 Sending digest...');
-  await sendDigest({ html, text, date, dryRun });
+  await sendDigest({ html, attachments, text, date, dryRun });
 }
 
 validateEnv();

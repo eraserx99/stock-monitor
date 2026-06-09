@@ -37,10 +37,22 @@ function sectorHeaderRow(sector, count) {
   </tr>`;
 }
 
+// Module-level state reset on each formatHTML call.
+// imgMode: 'inline' (base64 for dry-run) | 'cid' (email attachments)
+let _imgMode = 'inline';
+let _attachments = [];
+
+function imgSrc(buf) {
+  if (_imgMode === 'inline') return `data:image/png;base64,${buf.toString('base64')}`;
+  const cid = `img_${_attachments.length}`;
+  _attachments.push({ cid, content: buf });
+  return `cid:${cid}`;
+}
+
 function sparklineHTML(prices) {
   const buf = sparklinePNG(prices);
   if (!buf) return '<span style="color:#334155;font-size:10px">—</span>';
-  return `<img src="data:image/png;base64,${buf.toString('base64')}" width="80" height="24" style="display:block;vertical-align:middle"/>`;
+  return `<img src="${imgSrc(buf)}" width="80" height="24" style="display:block;vertical-align:middle"/>`;
 }
 
 function earningsSectionHTML(earnings) {
@@ -88,7 +100,7 @@ function detailChartHTML(dailyChart) {
 
   return `<div style="padding:0 16px 14px">
     <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">1-Year Chart</div>
-    <img src="data:image/png;base64,${buf.toString('base64')}" width="100%" style="display:block;border-radius:6px;max-width:600px"/>
+    <img src="${imgSrc(buf)}" width="100%" style="display:block;border-radius:6px;max-width:600px"/>
     <div style="display:flex;gap:14px;margin-top:5px;font-size:10px;color:#64748b;flex-wrap:wrap;align-items:center">
       <span><span style="color:${priceColor}">──</span> Price</span>
       <span><span style="color:#60a5fa">──</span> MA50</span>
@@ -345,8 +357,14 @@ function usageFooterHTML(usage) {
   </div>`;
 }
 
-export function formatHTML(results, date, model, usage = null, ipos = [], benchmark = null) {
-  return `<!DOCTYPE html>
+// Returns { html, attachments }.
+// inline=true: images as base64 data URIs (dry-run browser preview).
+// inline=false: images as cid: references with nodemailer attachments (email).
+export function formatHTML(results, date, model, usage = null, ipos = [], benchmark = null, { inline = false } = {}) {
+  _imgMode = inline ? 'inline' : 'cid';
+  _attachments = [];
+
+  const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:700px;margin:0 auto;padding:20px;background:#0f172a;color:#f1f5f9">
@@ -375,6 +393,8 @@ export function formatHTML(results, date, model, usage = null, ipos = [], benchm
   </div>
 </body>
 </html>`;
+
+  return { html, attachments: _attachments };
 }
 
 export function formatText(results, date, model, usage = null) {
