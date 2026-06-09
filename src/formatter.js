@@ -1,3 +1,5 @@
+import { sparklinePNG, chartPNG } from './charts.js';
+
 const SENTIMENT = {
   Bullish: { border: '#22c55e', bg: '#052e16', text: '#4ade80', label: 'BULLISH' },
   Neutral:  { border: '#f59e0b', bg: '#1c1400', text: '#fbbf24', label: 'NEUTRAL' },
@@ -35,18 +37,10 @@ function sectorHeaderRow(sector, count) {
   </tr>`;
 }
 
-function sparklineSVG(prices) {
-  if (!prices || prices.length < 2) return '<span style="color:#334155;font-size:10px">—</span>';
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const W = 80, H = 24, pad = 1;
-  const xs = prices.map((_, i) => pad + (i / (prices.length - 1)) * (W - pad * 2));
-  const ys = prices.map(p => H - pad - ((p - min) / range) * (H - pad * 2));
-  const pts = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
-  const fillPts = `${xs[0].toFixed(1)},${H} ${pts} ${xs[xs.length - 1].toFixed(1)},${H}`;
-  const color = prices[prices.length - 1] >= prices[0] ? '#4ade80' : '#f87171';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="24" viewBox="0 0 80 24" style="display:block;overflow:visible"><polygon points="${fillPts}" fill="${color}" fill-opacity="0.12"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+function sparklineHTML(prices) {
+  const buf = sparklinePNG(prices);
+  if (!buf) return '<span style="color:#334155;font-size:10px">—</span>';
+  return `<img src="data:image/png;base64,${buf.toString('base64')}" width="80" height="24" style="display:block;vertical-align:middle"/>`;
 }
 
 function earningsSectionHTML(earnings) {
@@ -75,47 +69,16 @@ function earningsSectionHTML(earnings) {
   </div>`;
 }
 
-function detailChartSVG(dailyChart) {
+function detailChartHTML(dailyChart) {
   if (!dailyChart?.closes?.length) return '';
-  const { closes, ma50, ma200, vwap30 } = dailyChart;
+  const { closes, vwap30 } = dailyChart;
   const n = closes.length;
   if (n < 2) return '';
 
-  const W = 600, H = 90, padL = 2, padR = 2, padT = 5, padB = 5;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-
-  const allVals = [
-    ...closes,
-    ...ma50.filter(v => v != null),
-    ...ma200.filter(v => v != null),
-    ...vwap30.filter(v => v != null),
-  ];
-  const yMin = Math.min(...allVals);
-  const yMax = Math.max(...allVals);
-  const yRange = yMax - yMin || 1;
-
-  const toX = i => (padL + (i / (n - 1)) * plotW).toFixed(1);
-  const toY = v => (H - padB - ((v - yMin) / yRange) * plotH).toFixed(1);
+  const buf = chartPNG(dailyChart);
+  if (!buf) return '';
 
   const priceColor = closes[n - 1] >= closes[0] ? '#4ade80' : '#f87171';
-  const pricePts = closes.map((c, i) => `${toX(i)},${toY(c)}`).join(' ');
-  const fillPts = `${padL},${H - padB} ${pricePts} ${padL + plotW},${H - padB}`;
-
-  function lineSegments(series, color, strokeW, dasharray) {
-    const segs = [];
-    let cur = [];
-    series.forEach((v, i) => {
-      if (v == null) { if (cur.length > 1) segs.push(cur.join(' ')); cur = []; }
-      else cur.push(`${toX(i)},${toY(v)}`);
-    });
-    if (cur.length > 1) segs.push(cur.join(' '));
-    const dash = dasharray ? ` stroke-dasharray="${dasharray}"` : '';
-    return segs.map(pts =>
-      `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${strokeW}"${dash} stroke-linejoin="round"/>`
-    ).join('');
-  }
-
   const lastVwap = [...vwap30].reverse().find(v => v != null) ?? null;
   const lastClose = closes[n - 1];
   const vwapDiff = lastVwap != null ? ((lastClose - lastVwap) / lastVwap * 100) : null;
@@ -125,13 +88,7 @@ function detailChartSVG(dailyChart) {
 
   return `<div style="padding:0 16px 14px">
     <div style="font-size:10px;text-transform:uppercase;font-weight:600;color:#64748b;margin-bottom:6px">1-Year Chart</div>
-    <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W} ${H}" style="display:block;background:#0f172a;border-radius:6px">
-      <polygon points="${fillPts}" fill="${priceColor}" fill-opacity="0.08"/>
-      <polyline points="${pricePts}" fill="none" stroke="${priceColor}" stroke-width="1.5" stroke-linejoin="round"/>
-      ${lineSegments(ma50, '#60a5fa', 1, '')}
-      ${lineSegments(ma200, '#fb923c', 1, '')}
-      ${lineSegments(vwap30, '#c084fc', 1, '3,2')}
-    </svg>
+    <img src="data:image/png;base64,${buf.toString('base64')}" width="100%" style="display:block;border-radius:6px;max-width:600px"/>
     <div style="display:flex;gap:14px;margin-top:5px;font-size:10px;color:#64748b;flex-wrap:wrap;align-items:center">
       <span><span style="color:${priceColor}">──</span> Price</span>
       <span><span style="color:#60a5fa">──</span> MA50</span>
@@ -194,7 +151,7 @@ function summaryRow(r) {
     <td style="padding:6px 10px">
       <span style="background:${s.bg};color:${s.text};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${s.label}</span>
     </td>
-    <td style="padding:4px 10px">${sparklineSVG(r.sparkline)}</td>
+    <td style="padding:4px 10px">${sparklineHTML(r.sparkline)}</td>
     <td style="padding:6px 10px;color:#94a3b8;font-style:italic;font-size:12px">${esc(r.one_liner)}</td>
   </tr>`;
 }
@@ -257,7 +214,7 @@ function detailCard(r, benchmark = null) {
       </div>
     </div>
     ${performanceOverviewHTML(r.performance, benchmark)}
-    ${detailChartSVG(r.dailyChart)}
+    ${detailChartHTML(r.dailyChart)}
     ${earningsSectionHTML(r.earnings)}
     ${newsSummaryHTML(r.news_summary)}
     <div style="padding:0 16px 14px;font-size:13px">

@@ -10,12 +10,13 @@
     "test": "node test/smoke.js",
     "pm2:start": "pm2 start src/index.js --name stock-monitor",
     "pm2:stop": "pm2 stop stock-monitor",
-    "pm2:restart": "pm2 restart stock-monitor",
+    "pm2:restart": "pm2 restart stock-monitor --update-env",
     "pm2:logs": "pm2 logs stock-monitor",
     "pm2:status": "pm2 status"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
+    "@napi-rs/canvas": "^1.0.0",
     "dotenv": "^17.4.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.10",
