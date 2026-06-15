@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { writeFile } from 'fs/promises';
 import { execFile } from 'child_process';
 
-export async function sendDigest({ html, attachments = [], text, date, dryRun = false }) {
+export async function sendDigest({ html, attachments = [], text, subject, date, dryRun = false }) {
   if (dryRun) {
     const path = '.dry-run-output.html';
     await writeFile(path, html, 'utf8');
@@ -19,11 +19,13 @@ export async function sendDigest({ html, attachments = [], text, date, dryRun = 
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
 
+  const emailSubject = subject || `📈 Daily Stock Digest — ${date}`;
+
   try {
     await transporter.sendMail({
       from: process.env.EMAIL_FROM,
       to: process.env.EMAIL_TO,
-      subject: `📈 Daily Stock Digest — ${date}`,
+      subject: emailSubject,
       text,
       html,
       attachments: attachments.map(a => ({
