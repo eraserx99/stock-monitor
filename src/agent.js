@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import YahooFinance from 'yahoo-finance2';
+import { scrapeArticles } from './scraper.js';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
@@ -127,6 +128,45 @@ news_summary: 2-3 sentence narrative synthesizing the recent news headlines into
   const text = response.content.find(b => b.type === 'text')?.text || '';
   const analysis = extractJSON(text);
   return { analysis: { news_summary: null, ...analysis }, usage: response.usage };
+}
+
+async function claudeEnrich(ticker, articles) {
+  if (!articles.length) return { sector_detail: null, key_technologies: null, upcoming_engagements: null, usage: null };
+
+  const articlesText = articles
+    .map((a, i) => `--- Article ${i + 1} (${a.url}) ---\n${a.text}`)
+    .join('\n\n');
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 400,
+    messages: [{
+      role: 'user',
+      content: `Extract company intelligence for ${ticker} from these news articles. Only include facts explicitly stated in the articles — do not use prior knowledge or fabricate details.
+
+${articlesText}
+
+Return ONLY a JSON object:
+{"sector_detail":string|null,"key_technologies":string[]|null,"upcoming_engagements":string[]|null}
+
+sector_detail: 10-20 words on the specific sub-sector and business model (e.g. "Cloud GPU infrastructure and AI accelerator chips for hyperscale data centers"). null if not determinable.
+key_technologies: 2-4 specific proprietary technologies, platforms, or IP assets mentioned. null if none found.
+upcoming_engagements: 2-4 specific contracts, partnerships, deals, or revenue events mentioned, each with counterparty and timeline when available. null if none found.`,
+    }],
+  });
+
+  const text = response.content.find(b => b.type === 'text')?.text || '';
+  try {
+    const parsed = extractJSON(text);
+    return {
+      sector_detail: parsed.sector_detail || null,
+      key_technologies: Array.isArray(parsed.key_technologies) && parsed.key_technologies.length ? parsed.key_technologies : null,
+      upcoming_engagements: Array.isArray(parsed.upcoming_engagements) && parsed.upcoming_engagements.length ? parsed.upcoming_engagements : null,
+      usage: response.usage,
+    };
+  } catch {
+    return { sector_detail: null, key_technologies: null, upcoming_engagements: null, usage: response.usage };
+  }
 }
 
 async function finnhubGet(path) {
@@ -456,6 +496,40 @@ export async function fetchBenchmarkReturns() {
   } catch {
     return null;
   }
+}
+
+export async function rankSectorGroup(sector, tickers) {
+  if (tickers.length <= 1) return { ranked: tickers.map(r => r.ticker), usage: null };
+
+  const tickerData = tickers.map(r => ({
+    ticker: r.ticker,
+    sentiment: r.sentiment,
+    change_pct: r.change_pct,
+    performance: r.performance || null,
+    recentEarnings: (r.earnings?.history || []).slice(0, 4).map(q =>
+      q.epsActual != null
+        ? `${q.quarter}: EPS $${q.epsActual.toFixed(2)} vs est $${(q.epsEstimate ?? 0).toFixed(2)} (${q.beat ? 'Beat' : 'Miss'} ${q.surprisePct})`
+        : null
+    ).filter(Boolean),
+    nextEarnings: r.earnings?.nextDate || null,
+    analystTargets: r.analyst_targets || [],
+  }));
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 200,
+    messages: [{
+      role: 'user',
+      content: `Rank these ${sector} stocks by profit potential. Priority: (1) recent price performance YTD/1Y/3Y, (2) earnings beats and surprise %, (3) analyst targets and ratings. Return ONLY: {"ranked":["BEST","SECOND",...]}
+
+${JSON.stringify(tickerData, null, 2)}`,
+    }],
+  });
+
+  const text = response.content.find(b => b.type === 'text')?.text || '';
+  const parsed = extractJSON(text);
+  const ranked = Array.isArray(parsed?.ranked) ? parsed.ranked : tickers.map(r => r.ticker);
+  return { ranked, usage: response.usage };
 }
 
 export async function fetchIPOCalendar() {
