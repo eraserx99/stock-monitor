@@ -1,6 +1,9 @@
 import 'dotenv/config';
-import { researchTicker, fetchIPOCalendar, fetchBenchmarkReturns, delay, model } from './agent.js';
-import { formatHTML, formatText } from './formatter.js';
+import { researchTicker, fetchIPOCalendar, fetchBenchmarkReturns, fetchMarketContext, rankSectorGroup, claudeSummarize, delay, model } from './agent.js';
+import { formatHTML, formatText, formatEmailHTML } from './formatter.js';
+import { writeFile, rename, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { sendDigest } from './mailer.js';
 import { startScheduler } from './scheduler.js';
 
@@ -26,6 +29,7 @@ async function runDigest(dryRun = false) {
   // Kick off background fetches in parallel with the ticker loop
   const ipoPromise = fetchIPOCalendar();
   const benchmarkPromise = fetchBenchmarkReturns();
+  const marketContextPromise = fetchMarketContext();
 
   const raw = [];
   for (let i = 0; i < tickers.length; i++) {
@@ -33,7 +37,7 @@ async function runDigest(dryRun = false) {
     if (i < tickers.length - 1) await new Promise(r => setTimeout(r, delay));
   }
 
-  const [ipos, benchmark] = await Promise.all([ipoPromise, benchmarkPromise]);
+  const [ipos, benchmark, marketContext] = await Promise.all([ipoPromise, benchmarkPromise, marketContextPromise]);
 
   const usage = raw.reduce((acc, r) => {
     if (r._usage) {
@@ -44,14 +48,59 @@ async function runDigest(dryRun = false) {
   }, { input_tokens: 0, output_tokens: 0 });
 
   const results = raw.map(({ _usage, ...r }) => r);
+
+  // Rank tickers within each sector group by profit potential
+  const sectorMap = {};
+  for (const r of results) {
+    const s = r.sector || 'Other';
+    (sectorMap[s] ??= []).push(r);
+  }
+  const rankedResults = [];
+  for (const [sector, group] of Object.entries(sectorMap)) {
+    if (group.length <= 1) { rankedResults.push(...group); continue; }
+    try {
+      const { ranked, usage: rankUsage } = await rankSectorGroup(sector, group);
+      if (rankUsage) {
+        usage.input_tokens += rankUsage.input_tokens ?? 0;
+        usage.output_tokens += rankUsage.output_tokens ?? 0;
+      }
+      const byTicker = Object.fromEntries(group.map(r => [r.ticker, r]));
+      const seen = new Set(ranked);
+      rankedResults.push(
+        ...ranked.filter(t => byTicker[t]).map(t => byTicker[t]),
+        ...group.filter(r => !seen.has(r.ticker)),
+      );
+    } catch (e) {
+      console.warn(`⚠️  Ranking failed for ${sector}: ${e.message}`);
+      rankedResults.push(...group);
+    }
+  }
+
   const cost = (usage.input_tokens / 1e6) * 3 + (usage.output_tokens / 1e6) * 15;
   console.log(`📊 ${usage.input_tokens.toLocaleString()} input · ${usage.output_tokens.toLocaleString()} output tokens · est. $${cost.toFixed(3)}`);
 
-  const { html, attachments } = formatHTML(results, date, model, usage, ipos, benchmark, { inline: dryRun });
-  const text = formatText(results, date, model, usage);
+  const { html: webHtml } = formatHTML(rankedResults, date, model, usage, ipos, benchmark, { inline: true });
+  const serverUrl = process.env.SERVER_URL || 'https://stocks.sapientiaworks.com';
+
+  // Write full digest to public/index.html for the web server
+  const publicDir = join(fileURLToPath(new URL('.', import.meta.url)), '../public');
+  await mkdir(publicDir, { recursive: true });
+  const tmpPath = join(publicDir, 'index.html.tmp');
+  await writeFile(tmpPath, webHtml, 'utf8');
+  await rename(tmpPath, join(publicDir, 'index.html'));
+  console.log('🌐 Web digest written to public/index.html');
+
+  // Generate compact email
+  const { subject, highlights, usage: sumUsage } = await claudeSummarize(rankedResults, marketContext, date);
+  if (sumUsage) {
+    usage.input_tokens += sumUsage.input_tokens ?? 0;
+    usage.output_tokens += sumUsage.output_tokens ?? 0;
+  }
+
+  const { html: emailHtml, text: emailText } = formatEmailHTML(rankedResults, { subject, highlights }, serverUrl);
 
   console.log('📧 Sending digest...');
-  await sendDigest({ html, attachments, text, date, dryRun });
+  await sendDigest({ html: emailHtml, text: emailText, subject, date, dryRun });
 }
 
 validateEnv();
