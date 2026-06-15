@@ -526,6 +526,99 @@ export async function fetchBenchmarkReturns() {
   }
 }
 
+export async function fetchMarketContext() {
+  const INDICES = [
+    { symbol: '^GSPC', name: 'S&P 500' },
+    { symbol: '^IXIC', name: 'Nasdaq' },
+    { symbol: '^DJI',  name: 'Dow Jones' },
+    { symbol: '^VIX',  name: 'VIX' },
+  ];
+  try {
+    const [quotes, newsRaw] = await Promise.all([
+      Promise.all(INDICES.map(i => yahooFinance.quote(i.symbol).catch(() => null))),
+      process.env.FINNHUB_API_KEY
+        ? finnhubGet('/news?category=general').catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const indices = quotes
+      .map((q, i) => {
+        if (!q?.regularMarketPrice) return null;
+        const pct = q.regularMarketChangePercent ?? 0;
+        return {
+          symbol: INDICES[i].symbol,
+          name: INDICES[i].name,
+          price: q.regularMarketPrice.toFixed(2),
+          change_pct: `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`,
+        };
+      })
+      .filter(Boolean);
+
+    const headlines = (Array.isArray(newsRaw) ? newsRaw : [])
+      .slice(0, 5)
+      .map(n => ({ headline: n.headline || n.title, url: n.url }))
+      .filter(n => n.headline);
+
+    return { indices, headlines };
+  } catch {
+    return { indices: [], headlines: [] };
+  }
+}
+
+export async function claudeSummarize(results, marketContext, date) {
+  const indicesText = (marketContext.indices || [])
+    .map(i => `${i.name}: ${i.price} (${i.change_pct})`)
+    .join(' · ') || 'unavailable';
+
+  const headlinesText = (marketContext.headlines || [])
+    .map(h => `• ${h.headline}`)
+    .join('\n') || '(none)';
+
+  const tickersText = results
+    .filter(r => !r.error)
+    .map(r => `${r.ticker}: ${r.price} ${r.change_pct} — ${r.sentiment} — ${r.one_liner || ''}`)
+    .join('\n');
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 300,
+    messages: [{
+      role: 'user',
+      content: `You are writing a daily stock digest email subject and bullet highlights.
+
+Market indices today: ${indicesText}
+
+Top market headlines:
+${headlinesText}
+
+Portfolio tickers:
+${tickersText}
+
+Return ONLY a JSON object:
+{"subject":string,"highlights":[string]}
+
+subject: One punchy line max 80 chars naming 1-2 biggest movers and market direction. Example: "NVDA +8% leads Tech; S&P fell 1.2% on Fed fears — Jun 15"
+highlights: 4-5 bullet strings. Bold key numbers with **double asterisks**. Cover biggest movers, earnings beats/misses, macro theme, sector standouts. Do not repeat the subject verbatim.`,
+    }],
+  });
+
+  const text = response.content.find(b => b.type === 'text')?.text || '';
+  try {
+    const parsed = extractJSON(text);
+    return {
+      subject: parsed.subject || `📈 Daily Stock Digest — ${date}`,
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
+      usage: response.usage,
+    };
+  } catch {
+    return {
+      subject: `📈 Daily Stock Digest — ${date}`,
+      highlights: [],
+      usage: response.usage,
+    };
+  }
+}
+
 export async function rankSectorGroup(sector, tickers) {
   if (tickers.length <= 1) return { ranked: tickers.map(r => r.ticker), usage: null };
 
