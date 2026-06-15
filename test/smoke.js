@@ -7,6 +7,9 @@ const FIXTURE = [
     change_pct: '+2.4%',
     sentiment: 'Bullish',
     one_liner: 'Nuclear energy demand from AI datacenters drives premium valuations.',
+    sector_detail: 'Nuclear power generation and long-term clean energy supply agreements for hyperscale data centers',
+    key_technologies: ['Advanced nuclear reactor operations', 'Power Purchase Agreement (PPA) structuring', 'Grid-scale baseload power delivery'],
+    upcoming_engagements: ['Microsoft 20-year nuclear PPA renewal signed Q2 2026', 'DOE grid stability contract under negotiation for 2027'],
     competitors: ['NEE', 'VST', 'TLN'],
     analyst_targets: [
       { firm: 'BofA', target: '$270', action: 'Upgrade', source: 'Yahoo', url: 'https://example.com/bofa' },
@@ -34,7 +37,7 @@ const FIXTURE = [
 
 const USAGE = { input_tokens: 12450, output_tokens: 3210 };
 
-const html = formatHTML(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
+const { html } = formatHTML(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
 const text = formatText(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
 
 const checks = [
@@ -58,6 +61,13 @@ const checks = [
   ['source badge Finnhub',         html.includes('📡 Finnhub')],
   ['analyst source pill Yahoo',    html.includes('📊 Yahoo')],
   ['news source publisher tag',    html.includes('via MarketWatch')],
+  ['company intel section shown',     html.includes('Company Intelligence')],
+  ['sector detail rendered',          html.includes('Nuclear power generation')],
+  ['key tech bullet rendered',        html.includes('Power Purchase Agreement (PPA) structuring')],
+  ['upcoming engagement rendered',    html.includes('Microsoft 20-year nuclear PPA renewal')],
+  ['company intel in plain text',     text.includes('Nuclear power generation')],
+  ['plain text key tech',             text.includes('Power Purchase Agreement')],
+  ['plain text engagement',           text.includes('Microsoft 20-year nuclear PPA')],
 ];
 
 let passed = 0;
