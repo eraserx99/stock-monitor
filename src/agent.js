@@ -320,29 +320,43 @@ async function fetchFromYahoo(ticker) {
     rawQuotes.map(q => q.volume ?? 1),
   );
 
-  const { analysis, usage } = await claudeAnalyze(ticker, {
-    ticker, price, change_pct,
-    sector: profile.sector,
-    industry: profile.industry,
-    analystMeanTarget: targetMean,
-    recentRatings: history.map(h => `${h.firm}: ${GRADE_ACTION[h.action] || h.toGrade}`),
-    recentNews: news.slice(0, 4).map(n => `[${n.source || 'Yahoo'}${n.sentiment ? ` · ${n.sentiment}` : ''}] ${n.headline}`),
-    recentEarnings: earningsQuarters.slice(0, 2).map(q =>
-      q.epsActual != null ? `${q.quarter}: EPS $${q.epsActual.toFixed(2)} vs est $${q.epsEstimate?.toFixed(2)} (${q.beat ? 'Beat' : 'Miss'} ${q.surprisePct})` : null
-    ).filter(Boolean),
-    performance: performance ? {
-      ytd: performance.ytd != null ? `${performance.ytd >= 0 ? '+' : ''}${performance.ytd.toFixed(1)}%` : null,
-      oneYear: performance.oneYear != null ? `${performance.oneYear >= 0 ? '+' : ''}${performance.oneYear.toFixed(1)}%` : null,
-      threeYear: performance.threeYear != null ? `${performance.threeYear >= 0 ? '+' : ''}${performance.threeYear.toFixed(1)}%` : null,
-      fiveYear: performance.fiveYear != null ? `${performance.fiveYear >= 0 ? '+' : ''}${performance.fiveYear.toFixed(1)}%` : null,
-    } : null,
-  });
+  const [{ analysis, usage: analyzeUsage }, scrapedArticles] = await Promise.all([
+    claudeAnalyze(ticker, {
+      ticker, price, change_pct,
+      sector: profile.sector,
+      industry: profile.industry,
+      analystMeanTarget: targetMean,
+      recentRatings: history.map(h => `${h.firm}: ${GRADE_ACTION[h.action] || h.toGrade}`),
+      recentNews: news.slice(0, 4).map(n => `[${n.source || 'Yahoo'}${n.sentiment ? ` · ${n.sentiment}` : ''}] ${n.headline}`),
+      recentEarnings: earningsQuarters.slice(0, 2).map(q =>
+        q.epsActual != null ? `${q.quarter}: EPS $${q.epsActual.toFixed(2)} vs est $${q.epsEstimate?.toFixed(2)} (${q.beat ? 'Beat' : 'Miss'} ${q.surprisePct})` : null
+      ).filter(Boolean),
+      performance: performance ? {
+        ytd: performance.ytd != null ? `${performance.ytd >= 0 ? '+' : ''}${performance.ytd.toFixed(1)}%` : null,
+        oneYear: performance.oneYear != null ? `${performance.oneYear >= 0 ? '+' : ''}${performance.oneYear.toFixed(1)}%` : null,
+        threeYear: performance.threeYear != null ? `${performance.threeYear >= 0 ? '+' : ''}${performance.threeYear.toFixed(1)}%` : null,
+        fiveYear: performance.fiveYear != null ? `${performance.fiveYear >= 0 ? '+' : ''}${performance.fiveYear.toFixed(1)}%` : null,
+      } : null,
+    }),
+    scrapeArticles(news.map(n => n.url)).catch(() => []),
+  ]);
+
+  const { sector_detail, key_technologies, upcoming_engagements, usage: enrichUsage } =
+    await claudeEnrich(ticker, scrapedArticles);
+
+  const usage = {
+    input_tokens: (analyzeUsage?.input_tokens ?? 0) + (enrichUsage?.input_tokens ?? 0),
+    output_tokens: (analyzeUsage?.output_tokens ?? 0) + (enrichUsage?.output_tokens ?? 0),
+  };
 
   return {
     ticker, price, change_pct,
     sector: profile.sector || null,
     industry: profile.industry || null,
     description: description || null,
+    sector_detail,
+    key_technologies,
+    upcoming_engagements,
     earnings,
     sparkline,
     dailyChart,
@@ -403,14 +417,25 @@ async function fetchFromFinnhub(ticker) {
     });
   }
 
-  const { analysis, usage } = await claudeAnalyze(ticker, {
-    ticker, price, change_pct,
-    analystRecommendation: recs[0]
-      ? `Buy:${recs[0].buy} Hold:${recs[0].hold} Sell:${recs[0].sell} (${recs[0].period})`
-      : null,
-    recentHeadlines: news.slice(0, 3).map(n => n.headline),
-    peers: competitors,
-  });
+  const [{ analysis, usage: analyzeUsage }, scrapedArticles] = await Promise.all([
+    claudeAnalyze(ticker, {
+      ticker, price, change_pct,
+      analystRecommendation: recs[0]
+        ? `Buy:${recs[0].buy} Hold:${recs[0].hold} Sell:${recs[0].sell} (${recs[0].period})`
+        : null,
+      recentHeadlines: news.slice(0, 3).map(n => n.headline),
+      peers: competitors,
+    }),
+    scrapeArticles(news.map(n => n.url)).catch(() => []),
+  ]);
+
+  const { sector_detail, key_technologies, upcoming_engagements, usage: enrichUsage } =
+    await claudeEnrich(ticker, scrapedArticles);
+
+  const usage = {
+    input_tokens: (analyzeUsage?.input_tokens ?? 0) + (enrichUsage?.input_tokens ?? 0),
+    output_tokens: (analyzeUsage?.output_tokens ?? 0) + (enrichUsage?.output_tokens ?? 0),
+  };
 
   const fhEarningsList = Array.isArray(fhEarnings) ? fhEarnings : [];
   const earningsHistory = fhEarningsList.slice(0, 4).map(e => {
@@ -445,6 +470,9 @@ async function fetchFromFinnhub(ticker) {
     sector: fhProfile?.finnhubIndustry || null,
     industry: fhProfile?.finnhubIndustry || null,
     description: null,
+    sector_detail,
+    key_technologies,
+    upcoming_engagements,
     earnings,
     sparkline,
     dailyChart,
@@ -485,7 +513,7 @@ Return ONLY a JSON object (no markdown, no code fences) with these exact keys:
   const textBlocks = response.content.filter(b => b.type === 'text');
   if (!textBlocks.length) throw new Error('No text block in response');
   const data = extractJSON(textBlocks[textBlocks.length - 1].text);
-  return { sector: null, industry: null, description: null, earnings: null, sparkline: null, dailyChart: null, performance: null, ...data, source: 'Web Search', _usage: response.usage };
+  return { sector: null, industry: null, description: null, sector_detail: null, key_technologies: null, upcoming_engagements: null, earnings: null, sparkline: null, dailyChart: null, performance: null, ...data, source: 'Web Search', _usage: response.usage };
 }
 
 export async function fetchBenchmarkReturns() {
