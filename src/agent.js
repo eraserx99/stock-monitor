@@ -11,6 +11,29 @@ export const delay = parseInt(process.env.TICKER_DELAY_MS ?? '2000', 10);
 
 const GRADE_ACTION = { up: 'Upgrade', down: 'Downgrade', init: 'Initiate', main: 'Maintain', reit: 'Reiterate' };
 
+// Maps Finnhub's finnhubIndustry strings to Yahoo-equivalent sector labels
+const FINNHUB_SECTOR = {
+  'Semiconductors':               'Technology',
+  'Electronic Technology':        'Technology',
+  'Technology Services':          'Technology',
+  'Software':                     'Technology',
+  'Hardware':                     'Technology',
+  'Telecommunications Equipment': 'Technology',
+  'Health Technology':            'Healthcare',
+  'Health Services':              'Healthcare',
+  'Medical Devices':              'Healthcare',
+  'Pharmaceuticals':              'Healthcare',
+  'Utilities - Electric':         'Utilities',
+  'Utilities':                    'Utilities',
+  'Finance':                      'Financial Services',
+  'Banking':                      'Financial Services',
+  'Commercial Services':          'Industrials',
+  'Industrial Services':          'Industrials',
+  'Energy Minerals':              'Energy',
+  'Consumer Non-Durables':        'Consumer Staples',
+  'Consumer Services':            'Consumer Discretionary',
+};
+
 function computePerformanceReturns(quotes) {
   // quotes: [{date: Date|string, adjclose: number|null, close: number}]
   if (!quotes || quotes.length < 2) return null;
@@ -467,7 +490,7 @@ async function fetchFromFinnhub(ticker) {
 
   return {
     ticker, price, change_pct,
-    sector: fhProfile?.finnhubIndustry || null,
+    sector: FINNHUB_SECTOR[fhProfile?.finnhubIndustry] || fhProfile?.finnhubIndustry || null,
     industry: fhProfile?.finnhubIndustry || null,
     description: null,
     sector_detail,
@@ -668,14 +691,23 @@ export async function fetchIPOCalendar() {
 }
 
 export async function researchTicker(ticker, date) {
-  // Plan A: yahoo-finance2
-  try {
-    console.log(`📊 ${ticker} — trying Yahoo Finance...`);
-    const result = await fetchFromYahoo(ticker);
-    console.log(`✅ ${ticker} complete (Yahoo Finance)`);
-    return result;
-  } catch (err) {
-    console.warn(`⚠️  Yahoo Finance failed for ${ticker}: ${err.message}`);
+  // Plan A: yahoo-finance2 with exponential backoff (2s → 8s → 20s, max ~30s)
+  const YAHOO_DELAYS = [2000, 8000, 20000];
+  for (let attempt = 0; attempt <= YAHOO_DELAYS.length; attempt++) {
+    if (attempt > 0) {
+      const wait = YAHOO_DELAYS[attempt - 1];
+      console.log(`⏳ ${ticker} — retrying Yahoo Finance in ${wait / 1000}s (attempt ${attempt + 1})...`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+    try {
+      if (attempt === 0) console.log(`📊 ${ticker} — trying Yahoo Finance...`);
+      const result = await fetchFromYahoo(ticker);
+      console.log(`✅ ${ticker} complete (Yahoo Finance)`);
+      return result;
+    } catch (err) {
+      console.warn(`⚠️  Yahoo Finance failed for ${ticker}: ${err.message}`);
+      if (attempt < YAHOO_DELAYS.length) continue;
+    }
   }
 
   // Plan B: Finnhub (only if key is configured)
