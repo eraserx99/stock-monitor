@@ -3,3 +3,5 @@ node_modules/
 .dry-run-output.html
 .superpowers/
 .playwright-mcp/
+public/index.html
+public/index.html.tmp
