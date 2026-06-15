@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { researchTicker, fetchIPOCalendar, fetchBenchmarkReturns, fetchMarketContext, rankSectorGroup, claudeSummarize, delay, model } from './agent.js';
-import { formatHTML, formatText, formatEmailHTML } from './formatter.js';
+import { formatHTML, formatEmailHTML } from './formatter.js';
 import { writeFile, rename, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -90,11 +90,19 @@ async function runDigest(dryRun = false) {
   await rename(tmpPath, join(publicDir, 'index.html'));
   console.log('🌐 Web digest written to public/index.html');
 
-  // Generate compact email
-  const { subject, highlights, usage: sumUsage } = await claudeSummarize(rankedResults, marketContext, date);
-  if (sumUsage) {
-    usage.input_tokens += sumUsage.input_tokens ?? 0;
-    usage.output_tokens += sumUsage.output_tokens ?? 0;
+  // Generate compact email — fall back gracefully if Anthropic is unavailable
+  let subject, highlights;
+  try {
+    const { subject: s, highlights: h, usage: sumUsage } = await claudeSummarize(rankedResults, marketContext, date);
+    subject = s; highlights = h;
+    if (sumUsage) {
+      usage.input_tokens += sumUsage.input_tokens ?? 0;
+      usage.output_tokens += sumUsage.output_tokens ?? 0;
+    }
+  } catch (e) {
+    console.warn(`⚠️  Summary failed, sending without highlights: ${e.message}`);
+    subject = `📈 Daily Stock Digest — ${date}`;
+    highlights = [];
   }
 
   const { html: emailHtml, text: emailText } = formatEmailHTML(rankedResults, { subject, highlights }, serverUrl);
