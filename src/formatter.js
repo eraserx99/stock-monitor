@@ -433,6 +433,82 @@ export function formatHTML(results, date, model, usage = null, ipos = [], benchm
   return { html, attachments: _attachments };
 }
 
+export function formatEmailHTML(results, summary, serverUrl) {
+  const { subject = '', highlights = [] } = summary || {};
+
+  const highlightsHTML = highlights.length
+    ? `<div style="margin-bottom:24px">
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Today's Highlights</div>
+        <ul style="margin:0;padding-left:0;list-style:none">
+          ${highlights.map(h => {
+            const safe = esc(h).replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#f1f5f9">$1</strong>');
+            return `<li style="padding:5px 0;border-bottom:1px solid #1e293b;color:#94a3b8;font-size:13px;line-height:1.5">→ ${safe}</li>`;
+          }).join('')}
+        </ul>
+      </div>`
+    : '';
+
+  const tableRows = results
+    .filter(r => !r.error)
+    .map(r => {
+      const s = SENTIMENT[r.sentiment] || SENTIMENT.Neutral;
+      return `<tr style="border-bottom:1px solid #1e293b">
+        <td style="padding:6px 10px;font-weight:700">
+          <a href="${yahoo(r.ticker)}" style="color:#f1f5f9;text-decoration:none">${esc(r.ticker)}</a>
+        </td>
+        <td style="padding:6px 10px;color:#cbd5e1;white-space:nowrap">${esc(r.price)}</td>
+        <td style="padding:6px 10px;color:${changeColor(r.change_pct)};font-weight:600;white-space:nowrap">${esc(r.change_pct)}</td>
+        <td style="padding:6px 10px">
+          <span style="background:${s.bg};color:${s.text};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${s.label}</span>
+        </td>
+        <td style="padding:6px 10px;color:#94a3b8;font-size:12px;font-style:italic">${esc(r.one_liner || '')}</td>
+      </tr>`;
+    }).join('');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:640px;margin:0 auto;padding:20px;background:#0f172a;color:#f1f5f9">
+  <div style="background:#1e293b;border:1px solid #334155;padding:16px 20px;border-radius:10px;margin-bottom:20px">
+    <h1 style="margin:0;font-size:18px;color:#f1f5f9">📈 ${esc(subject)}</h1>
+  </div>
+  ${highlightsHTML}
+  <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <div style="background:#0f172a;padding:8px 16px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Portfolio Summary</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="background:#0f172a;border-bottom:2px solid #334155">
+        <th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase">Ticker</th>
+        <th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase">Price</th>
+        <th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase">Change</th>
+        <th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase">Signal</th>
+        <th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase">Analysis</th>
+      </tr>
+      ${tableRows}
+    </table>
+  </div>
+  <div style="text-align:center;margin-bottom:24px">
+    <a href="${esc(serverUrl)}" style="display:inline-block;background:#3b82f6;color:#fff;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none">View Full Digest →</a>
+  </div>
+  <div style="text-align:center;color:#475569;font-size:11px;border-top:1px solid #1e293b;padding-top:12px">
+    Full charts, earnings history &amp; company intelligence at <a href="${esc(serverUrl)}" style="color:#60a5fa">${esc(serverUrl)}</a>
+  </div>
+</body>
+</html>`;
+
+  const textLines = [
+    subject, '='.repeat(60), '',
+    ...highlights.map(h => `→ ${h.replace(/\*\*([^*]+)\*\*/g, '$1')}`),
+    '',
+    ...results.filter(r => !r.error).map(r =>
+      `${r.ticker}  ${r.price}  ${r.change_pct}  ${(r.sentiment || '').toUpperCase()}  ${r.one_liner || ''}`
+    ),
+    '',
+    `View full digest: ${serverUrl}`,
+  ];
+
+  return { html, text: textLines.join('\n') };
+}
+
 export function formatText(results, date, model, usage = null) {
   const lines = [`📈 Daily Stock Digest — ${date}`, '='.repeat(50), ''];
   for (const r of results) {

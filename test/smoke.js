@@ -1,4 +1,4 @@
-import { formatHTML, formatText } from '../src/formatter.js';
+import { formatHTML, formatText, formatEmailHTML } from '../src/formatter.js';
 
 const FIXTURE = [
   {
@@ -40,6 +40,16 @@ const USAGE = { input_tokens: 12450, output_tokens: 3210 };
 const { html } = formatHTML(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
 const text = formatText(FIXTURE, 'June 5, 2026', 'claude-sonnet-4-6', USAGE);
 
+const SUMMARY = {
+  subject: 'CEG +2.4% leads Utilities; market quiet — Jun 5',
+  highlights: [
+    'CEG **+2.4%** on Microsoft PPA deal renewal — nuclear demand stays strong',
+    'COHR **-1.8%** amid supply chain concerns and margin pressure',
+  ],
+};
+const SERVER_URL = 'https://stocks.sapientiaworks.com';
+const { html: emailHtml, text: emailText } = formatEmailHTML(FIXTURE, SUMMARY, SERVER_URL);
+
 const checks = [
   ['ticker Yahoo link in table',   html.includes('finance.yahoo.com/quote/CEG')],
   ['price shown',                  html.includes('$245.30')],
@@ -68,6 +78,14 @@ const checks = [
   ['company intel in plain text',     text.includes('Nuclear power generation')],
   ['plain text key tech',             text.includes('Power Purchase Agreement')],
   ['plain text engagement',           text.includes('Microsoft 20-year nuclear PPA')],
+  ['email has subject line',           emailHtml.includes('CEG +2.4% leads Utilities')],
+  ['email has bold highlight',         emailHtml.includes('<strong') && emailHtml.includes('Microsoft PPA deal')],
+  ['email has CTA link',               emailHtml.includes('https://stocks.sapientiaworks.com')],
+  ['email has View Full Digest text',  emailHtml.includes('View Full Digest')],
+  ['email has compact ticker table',   emailHtml.includes('$245.30')],
+  ['email has no chart img tags',      !emailHtml.match(/<img[^>]+cid:/i)],
+  ['email plain text has subject',     emailText.includes('CEG +2.4% leads Utilities')],
+  ['email plain text has server url',  emailText.includes('https://stocks.sapientiaworks.com')],
 ];
 
 let passed = 0;
