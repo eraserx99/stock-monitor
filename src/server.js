@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import express from 'express';
 import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import { readFile } from 'fs/promises';
@@ -52,6 +51,8 @@ app.get('/', async (_req, res) => {
 
 app.use((_req, res) => res.status(404).type('text').send('Not found'));
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`🌐 Stock web server listening on http://127.0.0.1:${PORT}`);
-});
+export function startServer() {
+  app.listen(PORT, '127.0.0.1', () => {
+    console.log(`🌐 Stock web server listening on http://127.0.0.1:${PORT}`);
+  });
+}

@@ -6,6 +6,7 @@ import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { sendDigest } from './mailer.js';
 import { startScheduler } from './scheduler.js';
+import { startServer } from './server.js';
 
 const REQUIRED = ['ANTHROPIC_API_KEY', 'EMAIL_TO', 'EMAIL_FROM', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'TICKERS'];
 
@@ -120,6 +121,7 @@ if (args.includes('--dry-run')) {
 } else if (args.includes('--run-now')) {
   runDigest(false).catch(err => { console.error(`❌ Fatal: ${err.message}`); process.exit(1); });
 } else {
+  startServer();
   startScheduler(() => runDigest().catch(err => console.error(`❌ ${err.message}`)));
   process.on('SIGINT',  () => { console.log('\n👋 Shutting down'); process.exit(0); });
   process.on('SIGTERM', () => { console.log('\n👋 Shutting down'); process.exit(0); });

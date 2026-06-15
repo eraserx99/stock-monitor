@@ -12,9 +12,7 @@
     "pm2:start-all": "pm2 start ecosystem.config.cjs",
     "pm2:stop-all": "pm2 stop ecosystem.config.cjs",
     "pm2:restart-all": "pm2 restart ecosystem.config.cjs --update-env",
-    "pm2:web-start": "pm2 start ecosystem.config.cjs --only stock-web",
-    "pm2:web-stop": "pm2 stop stock-web",
-    "pm2:web-logs": "pm2 logs stock-web"
+    "pm2:logs": "pm2 logs stock-monitor"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
